@@ -83,11 +83,20 @@ export default function App() {
   const exportAsImage = async () => {
     if (receiptRef.current) {
       try {
+        // รอให้ฟอนต์โหลดเสร็จก่อนเริ่มจับภาพ
+        await document.fonts.ready;
+        
+        // เพิ่มดีเลย์เล็กน้อยเพื่อให้แน่ใจว่าทุกอย่าง Render เสร็จ
+        await new Promise(resolve => setTimeout(resolve, 500));
+
         const dataUrl = await toPng(receiptRef.current, {
-          pixelRatio: 2, // เพิ่มความคมชัด
+          pixelRatio: 2,
           backgroundColor: '#0f172a',
+          cacheBust: true, // ป้องกันการติด Cache ของรูปเดิม
+          style: {
+            fontFamily: '"Kanit", sans-serif', // ย้ำฟอนต์อีกรอบตอนจับภาพ
+          },
           filter: (node) => {
-            // ซ่อนปุ่มลบตอนเซฟรูป
             if (node.hasAttribute && node.hasAttribute('data-html2canvas-ignore')) {
               return false;
             }
@@ -96,7 +105,7 @@ export default function App() {
         });
         
         const link = document.createElement('a');
-        link.download = `harnlao-bill-${Date.now()}.png`;
+        link.download = `harnlao-${Date.now()}.png`;
         link.href = dataUrl;
         link.click();
       } catch (err) {
