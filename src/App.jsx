@@ -8,6 +8,7 @@ export default function App() {
   const [people, setPeople] = useState([]);
   const [items, setItems] = useState([]);
   const [qrCode, setQrCode] = useState(null);
+  const [isExporting, setIsExporting] = useState(false);
   const receiptRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -81,18 +82,18 @@ export default function App() {
   const grandTotal = items.reduce((sum, item) => sum + item.price, 0);
 
   const exportAsImage = async () => {
-    if (receiptRef.current) {
+    if (receiptRef.current && !isExporting) {
       try {
-        // รอให้ฟอนต์โหลดเสร็จก่อนเริ่มจับภาพ
+        setIsExporting(true);
+        // รอให้ฟอนต์โหลดเสร็จ
         await document.fonts.ready;
         
-        // เพิ่มดีเลย์เล็กน้อยเพื่อให้แน่ใจว่าทุกอย่าง Render เสร็จ
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // เพิ่มดีเลย์สำหรับมือถือ (Mobile browsers need more time to settle images in memory)
+        await new Promise(resolve => setTimeout(resolve, 800));
 
-        const dataUrl = await toPng(receiptRef.current, {
+        const options = {
           pixelRatio: 2,
           backgroundColor: '#0f172a',
-          cacheBust: true, // ป้องกันการติด Cache ของรูปเดิม
           style: {
             fontFamily: '"Kanit", sans-serif',
           },
@@ -102,7 +103,13 @@ export default function App() {
             }
             return true;
           }
-        });
+        };
+
+        // Trick สำหรับมือถือ: เรียกใช้ครั้งแรกเพื่อให้ไลบรารีเตรียม Cache ข้อมูลรูปภาพให้พร้อม
+        await toPng(receiptRef.current, options);
+        
+        // เรียกใช้ครั้งที่สองเพื่อเอาข้อมูลจริง (จะได้รูปที่สมบูรณ์)
+        const dataUrl = await toPng(receiptRef.current, options);
         
         const link = document.createElement('a');
         link.download = `harnlao-${Date.now()}.png`;
@@ -111,6 +118,8 @@ export default function App() {
       } catch (err) {
         console.error('Export failed', err);
         alert('ไม่สามารถบันทึกรูปภาพได้ กรุณาลองใหม่อีกครั้ง');
+      } finally {
+        setIsExporting(false);
       }
     }
   };
@@ -121,9 +130,9 @@ export default function App() {
         {/* Header */}
         <div className="text-center space-y-2">
           <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 tracking-tight">
-            โปรแกรมหารเหล้า
+            HARNLAO
           </h1>
-          
+          <p className="text-slate-400 text-sm font-light">หารค่าเหล้าแบบโปร ไม่ต้องง้อเครื่องคิดเลข</p>
 
           {/* Reset Button (Moved) */}
           <div className="flex justify-center pt-2">
@@ -192,12 +201,27 @@ export default function App() {
 
               <button
                 onClick={exportAsImage}
-                className="w-full bg-white text-slate-950 font-black py-5 rounded-[2rem] hover:bg-slate-200 active:scale-[0.98] transition-all flex justify-center items-center gap-3 shadow-[0_20px_40px_rgba(255,255,255,0.1)] group overflow-hidden relative"
+                disabled={isExporting}
+                className="w-full bg-white text-slate-950 font-black py-5 rounded-[2rem] hover:bg-slate-200 active:scale-[0.98] transition-all flex justify-center items-center gap-3 shadow-[0_20px_40px_rgba(255,255,255,0.1)] group overflow-hidden relative disabled:opacity-70"
               >
                 <span className="relative z-10 flex items-center gap-2">
-                  <span className="text-xl">📸</span> บันทึกรูปส่งให้เพื่อน
+                  {isExporting ? (
+                    <>
+                      <svg className="animate-spin h-5 w-5 text-slate-950" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      กำลังประมวลผล...
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-xl">📸</span> บันทึกรูปส่งให้เพื่อน
+                    </>
+                  )}
                 </span>
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+                {!isExporting && (
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+                )}
               </button>
             </div>
           </div>
