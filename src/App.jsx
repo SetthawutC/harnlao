@@ -9,6 +9,7 @@ export default function App() {
   const [items, setItems] = useState([]);
   const [qrCode, setQrCode] = useState(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [previewImage, setPreviewImage] = useState(null);
   const receiptRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -111,10 +112,9 @@ export default function App() {
         // เรียกใช้ครั้งที่สองเพื่อเอาข้อมูลจริง (จะได้รูปที่สมบูรณ์)
         const dataUrl = await toPng(receiptRef.current, options);
         
-        const link = document.createElement('a');
-        link.download = `harnlao-${Date.now()}.png`;
-        link.href = dataUrl;
-        link.click();
+        // แสดงรูปตัวอย่างเพื่อให้ผู้ใช้บันทึกเอง (ทางออกที่ดีที่สุดสำหรับ iOS)
+        setPreviewImage(dataUrl);
+
       } catch (err) {
         console.error('Export failed', err);
         alert('ไม่สามารถบันทึกรูปภาพได้ กรุณาลองใหม่อีกครั้ง');
@@ -126,13 +126,44 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 p-4 md:p-8 selection:bg-amber-500/30">
+      
+      {/* Image Preview Modal */}
+      {previewImage && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-xl animate-in fade-in duration-300">
+          <div className="max-w-sm w-full bg-slate-900 border border-slate-800 rounded-[2.5rem] p-6 shadow-2xl space-y-6 overflow-hidden relative">
+            <div className="text-center space-y-2">
+              <h3 className="text-xl font-bold text-amber-400">บันทึกรูปภาพ</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                กดค้างที่รูปภาพด้านล่างแล้วเลือก <br/>
+                <span className="text-slate-200 font-bold">"บันทึกไปยังแอปรูปภาพ (Save to Photos) "</span><br/>
+                <span className="text-slate-200 font-bold">"ในคอมพิวเตอร์คลิ๊กขวาเเละ (Save image) "</span>
+              </p>
+            </div>
+            
+            <div className="rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-inner max-h-[60vh] overflow-y-auto">
+              <img 
+                src={previewImage} 
+                alt="Receipt Preview" 
+                className="w-full h-auto"
+              />
+            </div>
+
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-4 rounded-2xl transition-all active:scale-95 border border-slate-700"
+            >
+              ปิดหน้าต่างนี้
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-md mx-auto space-y-8">
         {/* Header */}
         <div className="text-center space-y-2">
           <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 tracking-tight">
-            HARNLAO
+            โปรแกรมหารเหล้า
           </h1>
-          <p className="text-slate-400 text-sm font-light">หารค่าเหล้าแบบโปร ไม่ต้องง้อเครื่องคิดเลข</p>
 
           {/* Reset Button (Moved) */}
           <div className="flex justify-center pt-2">
