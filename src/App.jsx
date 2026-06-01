@@ -94,7 +94,7 @@ export default function App() {
           backgroundColor: '#0f172a',
           cacheBust: true, // ป้องกันการติด Cache ของรูปเดิม
           style: {
-            fontFamily: '"Kanit", sans-serif', // ย้ำฟอนต์อีกรอบตอนจับภาพ
+            fontFamily: '"Kanit", sans-serif',
           },
           filter: (node) => {
             if (node.hasAttribute && node.hasAttribute('data-html2canvas-ignore')) {
