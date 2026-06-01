@@ -89,12 +89,13 @@ export default function App() {
         // รอให้ฟอนต์โหลดเสร็จ
         await document.fonts.ready;
         
-        // เพิ่มดีเลย์สำหรับมือถือ (Mobile browsers need more time to settle images in memory)
-        await new Promise(resolve => setTimeout(resolve, 800));
+        // เพิ่มดีเลย์ให้มากขึ้นสำหรับ iOS (1.5 วินาทีเพื่อให้ทุกอย่างนิ่งจริง)
+        await new Promise(resolve => setTimeout(resolve, 1500));
 
         const options = {
-          pixelRatio: 2,
+          pixelRatio: 1.5, // ลดลงเล็กน้อยจาก 2 เพื่อประหยัดหน่วยความจำบน iOS แต่ยังชัดอยู่
           backgroundColor: '#0f172a',
+          quality: 0.95, // สำหรับ Jpeg
           style: {
             fontFamily: '"Kanit", sans-serif',
           },
@@ -106,18 +107,17 @@ export default function App() {
           }
         };
 
-        // Trick สำหรับมือถือ: เรียกใช้ครั้งแรกเพื่อให้ไลบรารีเตรียม Cache ข้อมูลรูปภาพให้พร้อม
-        await toPng(receiptRef.current, options);
+        // ใช้ toPng รอบแรกเพื่อกระตุ้น Cache (Warm up)
+        try { await toPng(receiptRef.current, options); } catch(e) {}
         
-        // เรียกใช้ครั้งที่สองเพื่อเอาข้อมูลจริง (จะได้รูปที่สมบูรณ์)
+        // ใช้ toPng รอบสองเพื่อเอาข้อมูลจริง
         const dataUrl = await toPng(receiptRef.current, options);
         
-        // แสดงรูปตัวอย่างเพื่อให้ผู้ใช้บันทึกเอง (ทางออกที่ดีที่สุดสำหรับ iOS)
         setPreviewImage(dataUrl);
 
       } catch (err) {
         console.error('Export failed', err);
-        alert('ไม่สามารถบันทึกรูปภาพได้ กรุณาลองใหม่อีกครั้ง');
+        alert('หน่วยความจำมือถือไม่พอ หรือเกิดข้อผิดพลาด กรุณาลองลบรายการบางส่วนหรือลองใหม่อีกครั้ง');
       } finally {
         setIsExporting(false);
       }
