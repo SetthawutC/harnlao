@@ -92,10 +92,12 @@ export default function App() {
         }
 
         await document.fonts.ready;
-        await new Promise(resolve => setTimeout(resolve, 1200));
+        
+        // ขยายเวลาเป็น 2.5 วินาที เพื่อให้ iOS จัดการ Gradient/Shadow/QR Code ได้ครบทุกเลเยอร์
+        await new Promise(resolve => setTimeout(resolve, 2500));
 
         const options = {
-          pixelRatio: 2, // กลับมาใช้ความคมชัดสูงสุด
+          pixelRatio: 2,
           backgroundColor: '#0f172a',
           style: {
             fontFamily: '"Kanit", sans-serif',
@@ -108,8 +110,12 @@ export default function App() {
           }
         };
 
-        // ใช้ toBlob แทน toPng เพื่อประหยัดหน่วยความจำมหาศาลบน iOS
         const { toBlob } = await import('html-to-image');
+        
+        // --- iOS One-Click Fix: วาดรอบแรกหลอกๆ เพื่อ Warm up (บังคับให้เบราว์เซอร์จัดการ Assets) ---
+        await toBlob(receiptRef.current, options);
+        
+        // --- วาดรอบสองเพื่อเอาข้อมูลจริง (ข้อมูลจะครบถ้วนเพราะผ่านการ Warm up แล้ว) ---
         const blob = await toBlob(receiptRef.current, options);
         const imgUrl = URL.createObjectURL(blob);
         
@@ -117,7 +123,7 @@ export default function App() {
 
       } catch (err) {
         console.error('Export failed', err);
-        alert('หน่วยความจำมือถือไม่พอ กรุณาลองใหม่หรือลดจำนวนรายการลงครับ');
+        alert('เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่อีกครั้ง');
       } finally {
         setIsExporting(false);
       }
