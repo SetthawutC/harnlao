@@ -86,16 +86,17 @@ export default function App() {
     if (receiptRef.current && !isExporting) {
       try {
         setIsExporting(true);
-        // รอให้ฟอนต์โหลดเสร็จ
+        // เคลียร์รูปเก่าออกจากหน่วยความจำ (ถ้ามี)
+        if (previewImage && previewImage.startsWith('blob:')) {
+          URL.revokeObjectURL(previewImage);
+        }
+
         await document.fonts.ready;
-        
-        // เพิ่มดีเลย์ให้มากขึ้นสำหรับ iOS (1.5 วินาทีเพื่อให้ทุกอย่างนิ่งจริง)
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise(resolve => setTimeout(resolve, 1200));
 
         const options = {
-          pixelRatio: 1.5, // ลดลงเล็กน้อยจาก 2 เพื่อประหยัดหน่วยความจำบน iOS แต่ยังชัดอยู่
+          pixelRatio: 2, // กลับมาใช้ความคมชัดสูงสุด
           backgroundColor: '#0f172a',
-          quality: 0.95, // สำหรับ Jpeg
           style: {
             fontFamily: '"Kanit", sans-serif',
           },
@@ -107,17 +108,16 @@ export default function App() {
           }
         };
 
-        // ใช้ toPng รอบแรกเพื่อกระตุ้น Cache (Warm up)
-        try { await toPng(receiptRef.current, options); } catch(e) {}
+        // ใช้ toBlob แทน toPng เพื่อประหยัดหน่วยความจำมหาศาลบน iOS
+        const { toBlob } = await import('html-to-image');
+        const blob = await toBlob(receiptRef.current, options);
+        const imgUrl = URL.createObjectURL(blob);
         
-        // ใช้ toPng รอบสองเพื่อเอาข้อมูลจริง
-        const dataUrl = await toPng(receiptRef.current, options);
-        
-        setPreviewImage(dataUrl);
+        setPreviewImage(imgUrl);
 
       } catch (err) {
         console.error('Export failed', err);
-        alert('หน่วยความจำมือถือไม่พอ หรือเกิดข้อผิดพลาด กรุณาลองลบรายการบางส่วนหรือลองใหม่อีกครั้ง');
+        alert('หน่วยความจำมือถือไม่พอ กรุณาลองใหม่หรือลดจำนวนรายการลงครับ');
       } finally {
         setIsExporting(false);
       }
