@@ -1,225 +1,142 @@
-import { forwardRef } from 'react';
+﻿import { forwardRef } from 'react';
 
-/**
- * Receipt — ใบเสร็จแสดงสรุปยอดหาร (ใช้สำหรับ export เป็นรูป)
- *
- * ใช้ forwardRef เพราะ parent (App) ต้องเข้าถึง DOM โดยตรง
- * เพื่อนำไป render เป็นรูปผ่าน html-to-image
- *
- * Props:
- *  - ref         (ref)                       : ref ไปยัง DOM root ของใบเสร็จ
- *  - items       (Array<{id, name, price, sharedBy}>)
- *  - totals      (Object<string, number>)    : ยอดเงินที่แต่ละคนต้องจ่าย
- *  - grandTotal  (number)                    : ยอดรวมทั้งหมด
- *  - onRemoveItem(function)                  : เรียกเมื่อกดลบรายการ รับ id
- *  - qrCode      (string|null)               : data URL ของ QR code (ถ้ามี)
- */
-const Receipt = forwardRef(function Receipt(
-  { items, totals, grandTotal, onRemoveItem, qrCode },
-  ref
-) {
+const Receipt = forwardRef(({ items, totals, grandTotal, onRemoveItem, onEditItem, qrCode, billName }, ref) => {
   return (
     <div
       ref={ref}
-      className="bg-slate-900 p-6 md:p-8 rounded-[2.5rem] border border-slate-800 shadow-2xl relative overflow-hidden"
+      className="bg-[#13161c] p-8 md:p-10 rounded-[2rem] shadow-[0_30px_60px_-15px_rgba(0,0,0,0.8)] ring-1 ring-white/5 space-y-8 relative overflow-hidden"
     >
-      {/* ===== เส้นตกแต่งด้านบน (gradient) ===== */}
-      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500/50 to-transparent"></div>
+      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-500/20 via-amber-400/50 to-amber-500/20"></div>
+      
+      <ReceiptHeader billName={billName} date={new Date().toLocaleDateString('th-TH')} />
 
-      {/* ===== Header ของใบเสร็จ ===== */}
-      <ReceiptHeader />
-
-      {/* ===== Section 1: รายการที่สั่ง + Grand Total ===== */}
-      <div className="mb-6 space-y-4">
-        <SectionHeader title="รายการที่สั่ง" />
-
-        {/* รายการสินค้าแต่ละบรรทัด */}
-        <div className="space-y-3">
-          {items.map((item) => (
-            <ItemRow
-              key={item.id}
-              item={item}
-              onRemove={onRemoveItem}
-            />
-          ))}
-        </div>
-
-        {/* ยอดรวมทั้งหมด */}
-        <GrandTotalRow grandTotal={grandTotal} />
+      <div className="space-y-4">
+        {items.map((item, index) => (
+          <ItemRow key={item.id} index={index} item={item} onRemove={onRemoveItem} onEdit={onEditItem} />
+        ))}
       </div>
 
-      {/* ===== Section 2: สรุปยอดรายคน + QR Code ===== */}
-      <div className="space-y-4">
-        <SectionHeader title="สรุปยอดรายคน" />
+      <div className="border-t border-dashed border-slate-700/50 pt-6">
+        <GrandTotalRow total={grandTotal} />
+      </div>
 
-        {/* รายการยอดเงินแต่ละคน (ซ่อนคนที่ยอดเป็น 0) */}
-        <div className="grid gap-2">
-          {Object.entries(totals).map(([person, amount]) =>
-            amount > 0 ? (
-              <PersonSummary key={person} name={person} amount={amount} />
-            ) : null
+      <div className="border-t border-dashed border-slate-700/50 pt-6">
+        <div className="text-center mb-6">
+          <h3 className="text-xs font-semibold tracking-widest text-slate-500 uppercase">สรุปยอดที่ต้องจ่าย</h3>
+        </div>
+        <div className="space-y-3">
+          {Object.entries(totals)
+            .filter(([, amount]) => amount > 0)
+            .sort((a, b) => b[1] - a[1])
+            .map(([person, amount]) => (
+              <PersonSummary key={person} person={person} amount={amount} />
+            ))}
+            
+          {Object.entries(totals).filter(([, amount]) => amount === 0).length > 0 && (
+            <div className="mt-4 pt-4 border-t border-slate-800/50">
+              <p className="text-[10px] text-slate-600 mb-2 uppercase tracking-widest font-medium">รอดตัว (ไม่ต้องจ่าย)</p>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(totals)
+                  .filter(([, amount]) => amount === 0)
+                  .map(([person]) => (
+                    <PersonSummaryZero key={person} person={person} />
+                  ))}
+              </div>
+            </div>
           )}
         </div>
-
-        {/* QR Code (แสดงเฉพาะเมื่อมี) */}
-        {qrCode && <QrCodeSection qrCode={qrCode} />}
       </div>
+
+      {qrCode && <QrCodeSection qrCode={qrCode} />}
     </div>
   );
 });
 
-/* ============================================================
- * Sub-components (ภายในไฟล์ เพื่อให้ Receipt หลักอ่านง่าย)
- * ============================================================ */
-
-/** หัวกระดาษใบเสร็จ (ชื่อ + เส้นใต้) */
-function ReceiptHeader() {
+function ReceiptHeader({ billName, date }) {
   return (
-    <div className="text-center mb-6">
-      <h2 className="text-3xl font-bold text-slate-100 tracking-tight flex flex-col items-center gap-1">
-        <span className="text-amber-500 text-[10px] font-black uppercase tracking-[0.4em]">
-          Receipt
-        </span>
-        <span className="bg-clip-text text-transparent bg-gradient-to-b from-slate-100 to-slate-400">
-          สรุปยอดหาร
-        </span>
-      </h2>
-      <div className="w-10 h-1 bg-amber-500 mx-auto mt-2 rounded-full"></div>
+    <div className="text-center space-y-1 mb-6">
+      <h2 className="text-2xl font-bold text-slate-200 tracking-wide">{billName || 'สรุปบิล'}</h2>
+      <p className="text-xs font-medium text-slate-500 uppercase tracking-widest">{date}</p>
     </div>
   );
 }
 
-/** หัวข้อ section พร้อมเส้นคั่นด้านขวา */
-function SectionHeader({ title }) {
+function ItemRow({ index, item, onRemove, onEdit }) {
   return (
-    <div className="flex items-center gap-4">
-      <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] whitespace-nowrap">
-        {title}
-      </h3>
-      <div className="h-px w-full bg-slate-800/50"></div>
-    </div>
-  );
-}
-
-/** บรรทัดรายการสินค้า 1 รายการ (ชื่อ + คนที่หาร + ราคา + ปุ่มลบ) */
-function ItemRow({ item, onRemove }) {
-  return (
-    <div className="flex justify-between items-start group animate-in slide-in-from-bottom-2 duration-300">
-      {/* ชื่อ + คนที่หาร */}
-      <div className="flex-1 pr-4">
-        <div className="text-base font-semibold text-slate-200 tracking-wide leading-tight">
-          {item.name}
+    <div className="group relative flex flex-col p-4 bg-slate-900/40 rounded-2xl hover:bg-slate-900/80 transition-colors ring-1 ring-transparent hover:ring-white/5">
+      <div className="flex justify-between items-start mb-2">
+        <div className="flex items-center gap-3">
+          <span className="text-slate-600 font-medium text-sm">{index + 1}.</span>
+          <span className="font-semibold text-slate-200">{item.name}</span>
         </div>
-        <div className="text-[10px] text-slate-500 mt-1 flex flex-wrap gap-x-2 gap-y-1 items-center">
-          <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-            หารโดย
-          </span>
-          <p className="text-slate-400 font-medium leading-none">
-            {item.sharedBy.join(' • ')}
-          </p>
-        </div>
-      </div>
-
-      {/* ราคา + ปุ่มลบ */}
-      <div className="flex items-center gap-3">
-        <span className="text-base font-bold text-slate-300 tabular-nums tracking-normal">
-          {item.price.toLocaleString()} บาท
-        </span>
-        <button
-          onClick={() => onRemove(item.id)}
-          // data-html2canvas-ignore: ป้องกันไม่ให้ปุ่มลบติดไปในรูปที่ export
-          data-html2canvas-ignore
-          className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-800/50 text-slate-600 hover:text-red-400 hover:bg-red-400/10 transition-all border border-transparent hover:border-red-400/20"
-          aria-label={`ลบ ${item.name}`}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M3 6h18" />
-            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-          </svg>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/** บรรทัด Grand Total (ยอดรวมทั้งหมด) */
-function GrandTotalRow({ grandTotal }) {
-  return (
-    <div className="pt-4 border-t border-slate-800 mt-4">
-      <div className="flex justify-between items-end bg-slate-950/30 p-4 rounded-2xl border border-slate-800/50">
-        <div>
-          <div className="text-[9px] font-black text-amber-500/80 uppercase tracking-[0.2em] mb-0.5">
-            Grand Total
-          </div>
-          <div className="text-sm font-bold text-slate-100 tracking-tight">
-            ยอดรวมทั้งหมด
+        <div className="flex items-center gap-3">
+          <span className="font-medium text-slate-300">฿{item.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+          <div className="flex gap-1" data-html2canvas-ignore>
+            {onEdit && (
+              <button onClick={() => onEdit(item)} className="p-1.5 text-slate-500 hover:text-amber-400 bg-slate-800/50 hover:bg-slate-800 rounded-lg transition-colors" title="แก้ไขรายการ">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+              </button>
+            )}
+            <button onClick={() => onRemove(item.id)} className="p-1.5 text-slate-500 hover:text-red-400 bg-slate-800/50 hover:bg-slate-800 rounded-lg transition-colors" title="ลบรายการ">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
           </div>
         </div>
-        <div className="text-right">
-          <span className="text-3xl font-black text-slate-100 tabular-nums tracking-normal">
-            {grandTotal.toLocaleString()}
-            <span className="text-xs ml-2 text-slate-500 font-bold uppercase">
-              บาท
-            </span>
+      </div>
+      <div className="pl-6 flex flex-wrap gap-1.5">
+        {item.sharedBy.map((person) => (
+          <span key={person} className="text-[10px] font-medium bg-slate-950 text-slate-400 px-2 py-0.5 rounded-md border border-slate-800/50">
+            {person}
           </span>
-        </div>
+        ))}
       </div>
     </div>
   );
 }
 
-/** บรรทัดสรุปยอดรายคน (1 คน) */
-function PersonSummary({ name, amount }) {
+function GrandTotalRow({ total }) {
   return (
-    <div className="flex justify-between items-center bg-slate-950/50 p-3 rounded-2xl border border-slate-800 hover:border-amber-500/40 transition-all group shadow-sm">
-      <span className="text-sm font-bold text-slate-300 tracking-wide">
-        {name}
+    <div className="flex justify-between items-center py-2">
+      <span className="text-sm font-semibold text-slate-400 uppercase tracking-widest">ยอดรวมทั้งหมด</span>
+      <span className="text-3xl font-bold text-amber-500 drop-shadow-[0_0_15px_rgba(245,158,11,0.3)]">
+        ฿{total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
       </span>
-      <div className="text-right">
-        <span className="text-xl font-black text-amber-500 tabular-nums tracking-normal leading-none">
-          {amount.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}
-          <span className="text-[10px] ml-2 text-slate-500 font-bold uppercase">
-            บาท
-          </span>
-        </span>
-      </div>
     </div>
   );
 }
 
-/** ส่วนแสดง QR code พร้อม effect เรืองแสง */
+function PersonSummary({ person, amount }) {
+  return (
+    <div className="flex justify-between items-center bg-slate-900/60 p-4 rounded-xl ring-1 ring-white/5">
+      <div className="flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-300 font-bold text-xs ring-1 ring-white/5">
+          {person.charAt(0).toUpperCase()}
+        </div>
+        <span className="font-medium text-slate-200">{person}</span>
+      </div>
+      <span className="font-bold text-amber-400 text-lg">
+        ฿{amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+      </span>
+    </div>
+  );
+}
+
+function PersonSummaryZero({ person }) {
+  return (
+    <span className="text-[10px] font-medium bg-slate-900/50 text-slate-500 px-2 py-1 rounded-md border border-slate-800/50 flex items-center gap-1.5">
+      <span className="w-1.5 h-1.5 rounded-full bg-slate-700"></span>
+      {person}
+    </span>
+  );
+}
+
 function QrCodeSection({ qrCode }) {
   return (
-    <div className="mt-6 flex flex-col items-center animate-in fade-in zoom-in duration-700">
-      <div className="relative group">
-        {/* แสงเรืองหลัง QR (เพิ่มความสวยงาม) */}
-        <div className="absolute -inset-4 bg-amber-500/10 rounded-[2.5rem] blur-2xl group-hover:bg-amber-500/20 transition-all"></div>
-        {/* กรอบ QR */}
-        <div className="relative bg-white p-3 rounded-3xl shadow-2xl border-4 border-slate-800">
-          <img
-            src={qrCode}
-            alt="Payment QR"
-            className="w-44 h-44 object-contain"
-          />
-        </div>
+    <div className="mt-8 pt-8 border-t border-dashed border-slate-700/50 flex flex-col items-center">
+      <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-4">สแกนจ่ายเงิน</p>
+      <div className="bg-white p-3 rounded-2xl shadow-xl">
+        <img src={qrCode} alt="QR Code" className="w-40 h-40 object-contain rounded-xl" />
       </div>
-      <p className="text-[9px] text-slate-500 mt-4 uppercase tracking-[0.3em] font-black">
-        สแกนเพื่อโอนเงิน
-      </p>
     </div>
   );
 }

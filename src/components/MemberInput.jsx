@@ -1,103 +1,89 @@
-import { useState } from 'react';
+﻿import { useState, useEffect } from 'react';
 
-/**
- * MemberInput — ส่วนกรอกรายชื่อคนที่จะมาหารบิล
- *
- * Props:
- *  - people         (string[])  : รายชื่อคนที่มีอยู่ในบิล
- *  - onAddNames     (function)  : เรียกเมื่อ user กดเพิ่มชื่อ รับ string (เว้นวรรคได้หลายชื่อ)
- *  - onRemovePerson (function)  : เรียกเมื่อ user กด × ที่ chip ชื่อ รับชื่อที่จะลบ
- */
 export default function MemberInput({ people, onAddNames, onRemovePerson }) {
-  // state เก็บค่าใน input ปัจจุบัน
-  const [nameInput, setNameInput] = useState('');
+  const [inputValue, setInputValue] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
 
-  /**
-   * เมื่อกด Enter ใน input → เพิ่มชื่อ (แทนการ submit form/refresh หน้า)
-   */
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleAdd();
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!inputValue.trim()) return;
+
+    const names = inputValue.split(' ').filter((n) => n.trim() !== '');
+    const duplicates = names.filter((name) => people.includes(name));
+
+    if (duplicates.length > 0) {
+      setErrorMsg(`ชื่อซ้ำ: ${duplicates.join(', ')}`);
+      return;
     }
+
+    onAddNames(inputValue);
+    setInputValue('');
+    setErrorMsg('');
   };
 
-  /**
-   * เพิ่มชื่อเข้า list แล้ว clear input
-   * เช็ค trim() เพื่อกัน user กดเพิ่มตอนช่องว่าง (จะไม่ส่งค่าเปล่าๆ ไป)
-   */
-  const handleAdd = () => {
-    if (nameInput.trim()) {
-      onAddNames(nameInput);
-      setNameInput('');
+  useEffect(() => {
+    if (errorMsg) {
+      const timer = setTimeout(() => setErrorMsg(''), 3000);
+      return () => clearTimeout(timer);
     }
-  };
+  }, [errorMsg]);
 
   return (
-    <div className="bg-slate-900/50 backdrop-blur-xl p-6 rounded-3xl border border-slate-800 shadow-2xl">
-      {/* ===== หัวข้อ ===== */}
-      <h2 className="text-[20px] font-semibold mb-4 flex items-center justify-center text-amber-400">
-        <span className="text-2xl">🧑🏻‍🤝‍🧑🏻</span> ใครมาบ้าง?
-      </h2>
+    <div className="bg-[#13161c] p-6 md:p-8 rounded-[2rem] shadow-[0_20px_40px_-15px_rgba(0,0,0,0.7)] ring-1 ring-white/5 space-y-6 relative overflow-hidden">
+      <div className="flex items-center gap-3">
+        <h2 className="text-xl font-semibold text-slate-200">1. ใครกินบ้าง?</h2>
+        <span className="text-xs font-medium bg-slate-800 text-slate-400 px-2.5 py-0.5 rounded-full">
+          {people.length} คน
+        </span>
+      </div>
 
-      {/* ===== ช่องกรอกชื่อ + ปุ่มเพิ่ม ===== */}
-      <div className="flex gap-2 mb-4">
+      <form onSubmit={handleSubmit} className="flex gap-3">
         <input
           type="text"
-          value={nameInput}
-          onChange={(e) => setNameInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="ใส่ชื่อ (เว้นวรรคเพื่อใส่หลายคน)"
-          className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500 transition-all placeholder:text-slate-600"
+          value={inputValue}
+          onChange={(e) => {
+            setInputValue(e.target.value);
+            if (errorMsg) setErrorMsg('');
+          }}
+          placeholder="พิมพ์ชื่อ (เว้นวรรคเพื่อเพิ่มหลายคน)"
+          className={`flex-1 bg-slate-950/50 text-slate-200 text-sm px-5 py-4 rounded-2xl focus:outline-none focus:ring-1 transition-all placeholder:text-slate-600 ${
+            errorMsg ? 'ring-1 ring-red-500/50 bg-red-950/10' : 'ring-1 ring-transparent focus:ring-slate-700'
+          }`}
         />
         <button
-          onClick={handleAdd}
-          className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-5 py-3 rounded-xl transition-all active:scale-95 shadow-[0_0_20px_rgba(245,158,11,0.2)]"
+          type="submit"
+          className="bg-slate-100 text-slate-900 font-semibold px-6 py-4 rounded-2xl hover:bg-white active:scale-95 transition-all text-sm shadow-[0_0_20px_rgba(255,255,255,0.1)]"
         >
           เพิ่ม
         </button>
-      </div>
+      </form>
 
-      {/* ===== รายชื่อคนที่เพิ่มแล้ว (chips) ===== */}
+      {errorMsg && (
+        <p className="text-red-400 text-xs font-medium mt-2 animate-in fade-in slide-in-from-top-1" role="alert">
+          {errorMsg}
+        </p>
+      )}
+
       {people.length > 0 && (
-        <div className="flex flex-wrap gap-2 mt-4">
+        <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-800/50">
           {people.map((person) => (
-            <PersonChip
+            <div
               key={person}
-              name={person}
-              onRemove={onRemovePerson}
-            />
+              className="group flex items-center bg-slate-950/50 text-slate-300 text-sm font-medium px-4 py-2 rounded-xl ring-1 ring-white/5 hover:ring-white/10 transition-all cursor-default"
+            >
+              {person}
+              <button
+                type="button"
+                onClick={() => onRemovePerson(person)}
+                className="ml-2 w-5 h-5 flex items-center justify-center rounded-full bg-slate-800 text-slate-500 group-hover:bg-red-500/20 group-hover:text-red-400 transition-colors"
+                aria-label={`ลบ ${person}`}
+              >
+                ✕
+              </button>
+            </div>
           ))}
         </div>
       )}
     </div>
-  );
-}
-
-/**
- * PersonChip — chip แสดงชื่อคน พร้อมปุ่ม × สำหรับลบ
- * (แยกเป็น internal component เพื่อให้ MemberInput อ่านง่ายขึ้น)
- *
- * Props:
- *  - name     (string)   : ชื่อที่จะแสดง
- *  - onRemove (function) : callback รับชื่อเพื่อนำไปลบออกจาก list
- */
-function PersonChip({ name, onRemove }) {
-  return (
-    <span
-      // ใช้ name เป็น key เพราะชื่อไม่ซ้ำกันใน list
-      key={name}
-      className="bg-slate-800 text-slate-200 pl-4 pr-2 py-1.5 rounded-full text-sm flex items-center gap-2 border border-slate-700 animate-in fade-in zoom-in duration-200"
-    >
-      {name}
-      {/* ปุ่ม × ลบคนออกจาก list */}
-      <button
-        onClick={() => onRemove(name)}
-        className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-red-500/20 text-slate-500 hover:text-red-400 transition-colors"
-        aria-label={`ลบ ${name}`}
-      >
-        ×
-      </button>
-    </span>
   );
 }

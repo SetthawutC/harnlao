@@ -1,22 +1,28 @@
-import { useState, useRef } from 'react';
-// toPng ถูก import ไว้เพื่อให้ bundler รู้จัก (ใช้ dynamic import ใน exportAsImage จริง)
-import { toPng } from 'html-to-image';
+﻿import { useState, useRef, useMemo, useEffect } from 'react';
 import MemberInput from './components/MemberInput';
 import ItemForm from './components/ItemForm';
 import Receipt from './components/Receipt';
 import PreviewModal from './components/PreviewModal';
+import BillNameInput from './components/BillNameInput';
+import ItemEditModal from './components/ItemEditModal';
+import BillHistory from './components/BillHistory';
 import { calculateTotals, calculateGrandTotal } from './utils/calculations';
 import { parseNames } from './utils/parsers';
+import { loadSession, saveSession, clearSession, loadHistory, saveHistory } from './utils/storage';
 
 /**
  * App หลัก — จัดการ state ทั้งหมดของแอป
  *
  * State ทั้งหมด:
+ *  - billName    : ชื่อบิล (เช่น "วันเกิด Beer 🎂")
  *  - people      : รายชื่อคนในบิล
  *  - items       : รายการสินค้าในบิล
  *  - qrCode      : data URL ของรูป QR code (ถ้ามี)
- *  - isExporting : กำลัง export รูปอยู่หรือไม่ (ใช้ disable ปุ่ม)
- *  - previewImage: blob URL ของรูปที่ export เสร็จแล้ว (ใช้แสดงใน PreviewModal)
+ *  - isExporting : กำลัง export รูปอยู่หรือไม่
+ *  - previewImage: blob URL ของรูปที่ export เสร็จแล้ว
+ *  - editingItem : item ที่กำลังแก้ไข (null = ไม่ได้เปิด modal)
+ *  - billHistory : ประวัติบิลที่บันทึกไว้ (array)
+ *  - showHistory : แสดง/ซ่อน BillHistory panel
  *
  * Refs:
  *  - receiptRef   : ref ไปยัง DOM ของ Receipt (ใช้ capture เป็นรูป)
@@ -24,17 +30,29 @@ import { parseNames } from './utils/parsers';
  */
 export default function App() {
   // ============================================================
-  // === State ===
+  // === State (lazy init จาก localStorage ถ้ามี) ===
   // ============================================================
-  const [people, setPeople] = useState([]);
-  const [items, setItems] = useState([]);
-  const [qrCode, setQrCode] = useState(null);
+  const [billName, setBillName] = useState(() => loadSession()?.billName ?? '');
+  const [people, setPeople] = useState(() => loadSession()?.people ?? []);
+  const [items, setItems] = useState(() => loadSession()?.items ?? []);
+  const [qrCode, setQrCode] = useState(() => loadSession()?.qrCode ?? null);
   const [isExporting, setIsExporting] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
+  const [editingItem, setEditingItem] = useState(null);
+  const [billHistory, setBillHistory] = useState(() => loadHistory());
+  const [showHistory, setShowHistory] = useState(false);
 
   // Refs สำหรับเข้าถึง DOM โดยตรง
   const receiptRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  // ============================================================
+  // === Auto-save session ไป localStorage ===
+  // ============================================================
+  useEffect(() => {
+    saveSession({ billName, people, items, qrCode });
+  }, [billName, people, items, qrCode]);
+
 
   // ============================================================
   // === Handlers (ฟังก์ชันจัดการ state/event) ===
@@ -79,11 +97,12 @@ export default function App() {
 
   /**
    * เพิ่มรายการสินค้าใหม่
-   * ใช้ Date.now() เป็น id แบบง่าย (เพียงพอสำหรับ use case นี้)
+   * ใช้ crypto.randomUUID() เป็น id — ปลอดภัยกว่า Date.now()
+   * ซึ่งอาจชน id กันได้หากเพิ่มรายการหลายรายการในช่วงเวลาเดียวกัน
    */
   const addItem = (newItemData) => {
     const newItem = {
-      id: Date.now(),
+      id: crypto.randomUUID(),
       ...newItemData,
     };
     setItems([...items, newItem]);
@@ -94,12 +113,93 @@ export default function App() {
     setItems(items.filter((item) => item.id !== idToRemove));
   };
 
+  /**
+   * แก้ไขรายการสินค้าที่มีอยู่แล้ว
+   * รับ id ของ item และ object ข้อมูลใหม่ { name, price, sharedBy }
+   * แล้วปิด ItemEditModal
+   */
+  const updateItem = (id, updatedData) => {
+    setItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, ...updatedData } : item))
+    );
+    setEditingItem(null);
+  };
+
+  // ============================================================
+  // === Bill History Handlers ===
+  // ============================================================
+
+  /**
+   * บันทึก snapshot ของบิลปัจจุบันลงใน history
+   * ไม่เก็บ qrCode เพื่อประหยัด localStorage space
+   * @returns {object} bill ที่เพิ่งบันทึก
+   */
+  const saveBillToHistory = () => {
+    const bill = {
+      id: crypto.randomUUID(),
+      billName: billName.trim() || 'บิลไม่มีชื่อ',
+      date: new Date().toISOString(),
+      people: [...people],
+      items: [...items],
+      grandTotal: calculateGrandTotal(items),
+    };
+    const newHistory = [bill, ...billHistory];
+    setBillHistory(newHistory);
+    saveHistory(newHistory);
+    return bill;
+  };
+
+  /**
+   * โหลดบิลจาก history กลับมาเป็น session ปัจจุบัน
+   * ถ้า session ปัจจุบันมีข้อมูลอยู่ จะถามก่อน
+   */
+  const loadBillFromHistory = (id) => {
+    const bill = billHistory.find((b) => b.id === id);
+    if (!bill) return;
+    const shouldReplace =
+      items.length === 0 ||
+      window.confirm(`แทนที่บิลปัจจุบันด้วย "${bill.billName}"?\n(บิลปัจจุบันจะหายไป)`);
+    if (!shouldReplace) return;
+    setBillName(bill.billName === 'บิลไม่มีชื่อ' ? '' : bill.billName);
+    setPeople(bill.people);
+    setItems(bill.items);
+    setQrCode(null); // QR ไม่ได้เก็บใน history
+    setShowHistory(false);
+  };
+
+  /** ลบบิลออกจาก history ตาม id */
+  const deleteBillFromHistory = (id) => {
+    const newHistory = billHistory.filter((b) => b.id !== id);
+    setBillHistory(newHistory);
+    saveHistory(newHistory);
+  };
+
+  /**
+   * เริ่มบิลใหม่ — ถ้ามีรายการอยู่จะถามก่อนว่าจะบันทึกไว้ใน history
+   * แล้ว clear ทั้ง state และ localStorage session
+   */
+  const handleNewBill = () => {
+    if (items.length > 0) {
+      const shouldSave = window.confirm(
+        'บันทึกบิลนี้ไว้ในประวัติก่อนมั้ย?\n(กด OK = บันทึก, Cancel = ทิ้งเลย)'
+      );
+      if (shouldSave) saveBillToHistory();
+    }
+    setBillName('');
+    setPeople([]);
+    setItems([]);
+    setQrCode(null);
+    clearSession();
+  };
+
   // ============================================================
   // === Derived values (ค่าที่คำนวณจาก state) ===
   // ============================================================
-  // คำนวณยอดรายคน + ยอดรวมทั้งหมด ใช้ utils (pure functions)
-  const totals = calculateTotals(people, items);
-  const grandTotal = calculateGrandTotal(items);
+  // ใช้ useMemo เพื่อคำนวณใหม่เฉพาะเมื่อ people หรือ items เปลี่ยนแปลงเท่านั้น
+  // ป้องกันการคำนวณซ้ำโดยไม่จำเป็นทุกครั้งที่ component re-render
+  const totals = useMemo(() => calculateTotals(people, items), [people, items]);
+  const grandTotal = useMemo(() => calculateGrandTotal(items), [items]);
+
 
   // ============================================================
   // === Actions (ฟังก์ชันที่ต้อง async หรือ side-effect หนักๆ) ===
@@ -113,7 +213,8 @@ export default function App() {
    *  - ใช้เทคนิค "warm up" คือ render รอบแรกทิ้งก่อน 1 ครั้ง
    *    เพื่อให้ browser โหลด asset ครบ แล้วค่อย render รอบสองเอาจริง
    *  - รอ document.fonts.ready เพื่อให้ font โหลดเสร็จก่อน
-   *  - รอ 2.5 วินาที เพื่อให้ iOS จัดการ layer ต่างๆ ครบ
+   *  - บน iOS รอเพิ่ม 2.5 วินาที เพื่อให้จัดการ layer ต่างๆ ครบ
+   *    (บน desktop/Android ไม่ต้องรอเพราะไม่มีปัญหานี้)
    */
   const exportAsImage = async () => {
     if (receiptRef.current && !isExporting) {
@@ -128,8 +229,12 @@ export default function App() {
         // รอให้ font โหลดเสร็จก่อน render
         await document.fonts.ready;
 
-        // หน่วงเวลาให้ iOS จัดการ gradient/shadow/QR code ครบทุกเลเยอร์
-        await new Promise((resolve) => setTimeout(resolve, 2500));
+        // ตรวจสอบว่ากำลังรันบน iOS หรือไม่
+        // ใส่ delay เฉพาะ iOS เพราะ Safari ต้องการเวลาเพิ่มเติมในการ render gradient/shadow
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        if (isIOS) {
+          await new Promise((resolve) => setTimeout(resolve, 2500));
+        }
 
         // ตั้งค่าการ render
         const options = {
@@ -167,43 +272,47 @@ export default function App() {
     }
   };
 
-  // เก็บ toPng ไว้เพื่อกัน tree-shaking ตัดออก (เผื่ออนาคตอยาก export เป็น data URL แทน blob)
-  void toPng;
-
   // ============================================================
   // === Render ===
   // ============================================================
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 p-4 md:p-8 selection:bg-amber-500/30">
+    <div className="min-h-screen bg-[#09090b] text-slate-200 p-4 md:p-10 selection:bg-amber-500/30">
 
-      {/* Modal แสดงรูป preview (แสดงเฉพาะเมื่อมีรูป) */}
+      {/* ===== Modals & Panels ===== */}
       <PreviewModal imageUrl={previewImage} onClose={() => setPreviewImage(null)} />
 
-      <div className="max-w-md mx-auto space-y-8">
+      {editingItem && (
+        <ItemEditModal
+          item={editingItem}
+          people={people}
+          onSave={(updatedData) => updateItem(editingItem.id, updatedData)}
+          onClose={() => setEditingItem(null)}
+        />
+      )}
+
+      {showHistory && (
+        <BillHistory
+          history={billHistory}
+          onLoad={loadBillFromHistory}
+          onDelete={deleteBillFromHistory}
+          onClose={() => setShowHistory(false)}
+        />
+      )}
+
+      <div className="max-w-md lg:max-w-2xl mx-auto space-y-10">
+
         {/* ===== Header ===== */}
-        <div className="text-center space-y-2">
-          <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 tracking-tight">
-            โปรแกรมหารเหล้า
+        <div className="text-center space-y-5 pt-4">
+          <h1 className="text-2xl font-semibold text-slate-100 tracking-wide flex items-center justify-center gap-2">
+            โปรแกรมหารเหล้า <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.8)]"></span>
           </h1>
 
-          {/* ปุ่มเริ่มบิลใหม่ (reload ทั้งหน้า) */}
-          <div className="flex justify-center pt-2">
+          <div className="flex justify-center items-center gap-6">
             <button
-              onClick={() => window.location.reload()}
-              className="text-[10px] font-black text-slate-600 hover:text-amber-500 transition-all flex items-center gap-1.5 uppercase tracking-[0.2em] group bg-slate-900/30 px-3 py-1.5 rounded-full border border-slate-800/50"
+              onClick={handleNewBill}
+              className="text-[11px] font-medium text-slate-500 hover:text-slate-200 transition-colors flex items-center gap-1.5"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="group-hover:rotate-180 transition-transform duration-500"
-              >
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
                 <path d="M21 3v5h-5" />
                 <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
@@ -211,8 +320,29 @@ export default function App() {
               </svg>
               เริ่มบิลใหม่
             </button>
+
+            <button
+              onClick={() => setShowHistory(true)}
+              className="text-[11px] font-medium text-slate-500 hover:text-slate-200 transition-colors flex items-center gap-1.5 relative"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+              </svg>
+              ประวัติบิล
+              {billHistory.length > 0 && (
+                <span className="absolute -top-1.5 -right-3 bg-amber-500 text-amber-950 text-[8px] font-bold w-3.5 h-3.5 rounded-full flex items-center justify-center leading-none">
+                  {billHistory.length > 9 ? '9+' : billHistory.length}
+                </span>
+              )}
+            </button>
           </div>
         </div>
+
+        {/* ===== ชื่อบิล ===== */}
+        <BillNameInput billName={billName} onChange={setBillName} />
 
         {/* ===== Section 1: เพิ่มสมาชิก ===== */}
         <MemberInput
@@ -221,91 +351,68 @@ export default function App() {
           onRemovePerson={removePerson}
         />
 
-        {/* ===== Section 2: เพิ่มรายการบิล (แสดงเมื่อมีคนแล้วอย่างน้อย 1 คน) ===== */}
+        {/* ===== Section 2: เพิ่มรายการบิล ===== */}
         {people.length > 0 && (
           <ItemForm people={people} onAddItem={addItem} />
         )}
 
-        {/* ===== Section 3: สรุปยอด + ปุ่ม action (แสดงเมื่อมีรายการแล้ว) ===== */}
+        {/* ===== Empty state ===== */}
+        {people.length > 0 && items.length === 0 && (
+          <div className="text-center py-16 space-y-4 animate-in fade-in duration-700">
+            <div className="text-4xl opacity-50 grayscale">🍽️</div>
+            <p className="text-slate-500 text-sm font-medium tracking-wide">ยังไม่มีรายการในบิล</p>
+          </div>
+        )}
+
+        {/* ===== Section 3: สรุปยอด + ปุ่ม action ===== */}
         {items.length > 0 && (
-          <div className="space-y-6">
+          <div className="space-y-8">
             <Receipt
               ref={receiptRef}
               items={items}
               totals={totals}
               grandTotal={grandTotal}
               onRemoveItem={removeItem}
+              onEditItem={setEditingItem}
               qrCode={qrCode}
+              billName={billName}
             />
 
-            <div className="grid grid-cols-1 gap-4">
-              {/* ปุ่มเพิ่ม/ลบ QR code (สลับตามสถานะ) */}
+            <div className="grid grid-cols-1 gap-3 max-w-sm mx-auto w-full">
               {!qrCode ? (
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full bg-slate-900 border border-slate-800 text-amber-500 font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all flex justify-center items-center gap-2 shadow-lg"
+                  className="w-full bg-[#13161c] text-amber-500/80 font-medium py-3.5 rounded-xl hover:bg-[#1a1e26] hover:text-amber-400 transition-all text-sm flex justify-center items-center gap-2 ring-1 ring-white/5"
                 >
-                  <span className="text-xl">➕</span> เพิ่ม QR CODE รับเงิน
+                  <span className="text-base">➕</span> เพิ่ม QR CODE
                 </button>
               ) : (
                 <button
                   onClick={removeQr}
-                  className="w-full bg-red-500/10 border border-red-500/20 text-red-400 font-bold py-4 rounded-2xl hover:bg-red-500/20 transition-all flex justify-center items-center gap-2"
+                  className="w-full bg-red-950/20 text-red-400/80 font-medium py-3.5 rounded-xl hover:bg-red-900/30 hover:text-red-400 transition-all text-sm flex justify-center items-center gap-2 ring-1 ring-red-900/30"
                 >
-                  <span className="text-xl">🗑️</span> ลบ QR CODE
+                  <span className="text-base">🗑️</span> ลบ QR CODE
                 </button>
               )}
 
-              {/* input file ซ่อนไว้ (ถูก trigger ผ่าน ref) */}
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleQrUpload}
-                className="hidden"
-                accept="image/*"
-              />
+              <input type="file" ref={fileInputRef} onChange={handleQrUpload} className="hidden" accept="image/*" />
 
-              {/* ปุ่ม export เป็นรูปภาพ */}
+              <button
+                onClick={() => { saveBillToHistory(); alert('บันทึกบิลเรียบร้อยแล้ว! 💾'); }}
+                className="w-full bg-[#13161c] text-slate-300 font-medium py-3.5 rounded-xl hover:bg-[#1a1e26] hover:text-white transition-all text-sm flex justify-center items-center gap-2 ring-1 ring-white/5"
+              >
+                <span className="text-base">💾</span> บันทึกไว้ในประวัติ
+              </button>
+
               <button
                 onClick={exportAsImage}
                 disabled={isExporting}
-                className="w-full bg-white text-slate-950 font-black py-5 rounded-[2rem] hover:bg-slate-200 active:scale-[0.98] transition-all flex justify-center items-center gap-3 shadow-[0_20px_40px_rgba(255,255,255,0.1)] group overflow-hidden relative disabled:opacity-70"
+                className="w-full bg-slate-100 text-slate-900 font-semibold py-4 rounded-xl hover:bg-white transition-all text-sm flex justify-center items-center gap-2 shadow-[0_0_30px_rgba(255,255,255,0.15)] disabled:opacity-50 mt-2"
               >
-                <span className="relative z-10 flex items-center gap-2">
-                  {isExporting ? (
-                    <>
-                      {/* Spinner ตอนกำลังประมวลผล */}
-                      <svg
-                        className="animate-spin h-5 w-5 text-slate-950"
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                      >
-                        <circle
-                          className="opacity-25"
-                          cx="12"
-                          cy="12"
-                          r="10"
-                          stroke="currentColor"
-                          strokeWidth="4"
-                        ></circle>
-                        <path
-                          className="opacity-75"
-                          fill="currentColor"
-                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                        ></path>
-                      </svg>
-                      กำลังประมวลผล...
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-xl">📸</span> บันทึกรูปส่งให้เพื่อน
-                    </>
-                  )}
-                </span>
-                {/* แถบ shine ตอน hover (เฉพาะตอนไม่ได้ export อยู่) */}
-                {!isExporting && (
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+                {isExporting ? (
+                  <span className="animate-pulse">กำลังประมวลผล...</span>
+                ) : (
+                  <>บันทึกรูปส่งให้เพื่อน</>
                 )}
               </button>
             </div>
@@ -314,10 +421,8 @@ export default function App() {
       </div>
 
       {/* ===== Footer ===== */}
-      <footer className="mt-16 text-center text-slate-700 text-[10px] font-bold uppercase pb-8">
-        <p>Made by 
-          <a href="mailto:setthawut_chaimongk@cmu.ac.th"> Setthawut Chaimongkol</a>
-        </p>
+      <footer className="mt-24 text-center text-slate-600 text-[10px] font-medium tracking-widest uppercase pb-8">
+        <p>Made with ❤️ by Setthawut</p>
       </footer>
     </div>
   );
